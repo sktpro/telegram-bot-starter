@@ -1,75 +1,66 @@
-#!/usr/bin/env python
-# pylint: disable=unused-argument
-# This program is dedicated to the public domain under the CC0 license.
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
+import requests
 
-"""
-Simple Bot to reply to Telegram messages.
+TELEGRAM_TOKEN = '8069192319:AAFSZ5KEXI-PufwhEwlCaL0KCYULp75hIbs'
+API_TOKEN = '4dcb6f58e9784845588bb53b17131846'
+API_URL = f'https://www.myarena.ru/api.php?query=status&token={API_TOKEN}'
 
-First, a few handler functions are defined. Then, those functions are passed to
-the Application and registered at their respective places.
-Then, the bot is started and runs until we press Ctrl-C on the command line.
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text('Hello! I am your server management bot.')
 
-Usage:
-Basic Echobot example, repeats messages.
-Press Ctrl-C on the command line or send a signal to the process to stop the
-bot.
-"""
+async def server_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    response = requests.get(API_URL)
+    data = response.json()
 
-import logging
-import os
+    if data.get("status") == "OK":
+        server_info = data.get('data', {}).get('s', {})
+        players_info = data.get('data', {}).get('p', [])
 
-from dotenv import load_dotenv
-from telegram import ForceReply, Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+        # Constructing player list
+        player_list = "\n".join(
+            [f"{player['name']} (Score: {player['score']}, Time: {player['time']})" for player in players_info]
+        ) if players_info else "No players online"
 
-# Enable logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
-# set higher logging level for httpx to avoid all GET and POST requests being logged
-logging.getLogger("httpx").setLevel(logging.WARNING)
+        status_message = (
+            f"Server Status: {'Online' if data.get('online') == 1 else 'Offline or Starting'}\n"
+            f"Server Name: {server_info.get('name', 'N/A')}\n"
+            f"Max Slots: {server_info.get('playersmax', 'N/A')}\n\n"
+            f"Current Players:\n{player_list}"
+        )
+    else:
+        status_message = f"Failed to retrieve server status. API Response: {data}"
 
-logger = logging.getLogger(__name__)
+    await update.message.reply_text(status_message)
 
+async def list_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    response = requests.get(API_URL)
+    data = response.json()
 
-# Define a few command handlers. These usually take the two arguments update and
-# context.
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /start is issued."""
-    user = update.effective_user
-    await update.message.reply_html(
-        rf"Hi {user.mention_html()}!",
-        reply_markup=ForceReply(selective=True),
-    )
+    if data.get("status") == "OK":
+        players_info = data.get('data', {}).get('p', [])
 
+        # Constructing player list
+        player_list = "\n".join(
+            [f"{player['name']} (Score: {player['score']}, Time: {player['time']})" for player in players_info]
+        ) if players_info else "No players online"
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /help is issued."""
-    await update.message.reply_text("Help!")
+        players_message = (
+            f"Current Players:\n{player_list}"
+        )
+    else:
+        players_message = f"Failed to retrieve player list. API Response: {data}"
 
+    await update.message.reply_text(players_message)
 
-async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Echo the user message."""
-    await update.message.reply_text(update.message.text)
+def main():
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-
-def main() -> None:
-    """Start the bot."""
-    load_dotenv()
-
-    # Create the Application and pass it your bot's token.
-    application = Application.builder().token(os.environ["TOKEN"]).build()
-
-    # on different commands - answer in Telegram
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("status", server_status))
+    application.add_handler(CommandHandler("players", list_players))
 
-    # on non command i.e message - echo the message on Telegram
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+    application.run_polling()
 
-    # Run the bot until the user presses Ctrl-C
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
